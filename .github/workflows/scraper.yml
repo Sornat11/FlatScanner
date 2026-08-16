@@ -1,0 +1,41 @@
+name: FlatScanner Bot
+
+on:
+  schedule:
+    # Uruchomienie co 30 minut między 6:00 a 22:00 czasu UTC
+    # Dostosuj to do swoich potrzeb. (Aktualnie 6-22 UTC to 8-24 czasu polskiego letniego)
+    - cron: '*/30 6-22 * * *'
+  workflow_dispatch: # Możliwość ręcznego uruchomienia z interfejsu GitHuba
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pobieranie repozytorium
+        uses: actions/checkout@v3
+
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Instalacja zależności
+        run: npm ci || npm install
+
+      - name: Instalacja przeglądarek dla Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Uruchomienie Scrapera
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: npm start
+
+      - name: Zapisanie nowych ofert (Commit)
+        run: |
+          git config --global user.name "FlatScanner Bot"
+          git config --global user.email "bot@flatscanner.local"
+          git add data/seen_offers.json
+          # Commituj tylko wtedy, gdy plik został zmieniony
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update seen offers"
+          git push
