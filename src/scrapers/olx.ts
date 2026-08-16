@@ -6,51 +6,48 @@ const OLX_URL = 'https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?sea
 
 export async function scrapeOLX(page: Page): Promise<Offer[]> {
     console.log('[OLX] Zaczynam scrapowanie...');
-    await page.goto(OLX_URL, { waitUntil: 'domcontentloaded' });
+    await page.goto(OLX_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
     
-    try {
-        const acceptBtn = page.locator('#onetrust-accept-btn-handler');
-        if (await acceptBtn.isVisible({ timeout: 5000 })) {
-            await acceptBtn.click();
+    // Czekamy chwilę na ułożenie elementów by upewnić się, że React załadował kafelki
+    await page.waitForTimeout(2000);
+    
+    const offers = await page.$$eval('[data-testid="l-card"]', (cards) => {
+        return cards.map(card => {
+            const titleEl = card.querySelector('[data-testid="ad-card-title"], h6');
+            const priceEl = card.querySelector('[data-testid="ad-price"]');
+            const linkEl = card.querySelector('a');
+            const imgEl = card.querySelector('img');
+
+            return {
+                title: titleEl ? titleEl.textContent : '',
+                price: priceEl ? priceEl.textContent : 'Brak ceny',
+                url: linkEl ? linkEl.getAttribute('href') : '',
+                imageUrl: imgEl ? imgEl.getAttribute('src') : null
+            };
+        });
+    });
+
+    const results: Offer[] = [];
+    for (const offer of offers) {
+        let url = offer.url || '';
+        if (!url || !offer.title) continue;
+
+        if (url.startsWith('/')) {
+            url = `https://www.olx.pl${url}`;
         }
-    } catch (e) {}
 
-    const offers: Offer[] = [];
-    
-    const cards = page.locator('[data-testid="l-card"]');
-    await cards.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    
-    const count = await cards.count();
-    
-    for (let i = 0; i < count; i++) {
-        try {
-            const card = cards.nth(i);
-            const title = await card.locator('h6').first().innerText();
-            const price = await card.locator('[data-testid="ad-price"]').first().innerText();
-            let url = await card.locator('a').first().getAttribute('href') || '';
-            
-            if (url.startsWith('/')) {
-                url = `https://www.olx.pl${url}`;
-            }
-
-            const idHash = crypto.createHash('md5').update(url.split('#')[0]).digest('hex');
-            const id = `OLX-${idHash}`;
-
-            const imgUrl = await card.locator('img').first().getAttribute('src').catch(() => null);
-
-            offers.push({
-                id,
-                title: title.trim(),
-                url,
-                price: price.trim(),
-                imageUrl: imgUrl || undefined,
-                source: 'OLX'
-            });
-        } catch (e) {
-            // Ignorowanie pojedynczych kart
-        }
+        const idHash = crypto.createHash('md5').update(url.split('#')[0]).digest('hex');
+        
+        results.push({
+            id: `OLX-${idHash}`,
+            title: offer.title.trim(),
+            url: url,
+            price: offer.price ? offer.price.trim() : 'Brak',
+            imageUrl: offer.imageUrl || undefined,
+            source: 'OLX'
+        });
     }
 
-    console.log(`[OLX] Pobrano ${offers.length} ofert.`);
-    return offers;
+    console.log(`[OLX] Pobrano ${results.length} ofert.`);
+    return results;
 }
